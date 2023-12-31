@@ -1,0 +1,74 @@
+$region = "us-east-1"  # Set your desired AWS region
+
+# Set your S3 bucket information
+$s3Bucket = "s3://upload-ad-78"
+
+# Specify the list of local folders to sync
+$folder1 = "C:\Users\Administrator\Desktop\test12\test"
+$folder2 = "C:\Users\Administrator\Desktop\test12\test2"
+
+$localFolders = @($folder1, $folder2)
+
+# Log file path
+$logFilePath = "C:\Users\Administrator\Desktop\LogFile.log"
+
+# Webhook URL for notifications
+$webhookUrl = "https://chat.googleapis.com/v1/spaces/AAAAVcrg_P0/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=v6ALIYy03wj9h79JJHAFW0gAeauYqXTURew7M6LIay0"
+
+# Function to log entries to a file
+function Log-Entry {
+    param (
+        [string]$entry
+    )
+
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $logEntry = "$timestamp - $entry"
+    Add-Content -Path $logFilePath -Value $logEntry
+}
+
+# Iterate over each local folder and sync to S3
+foreach ($localFolder in $localFolders) {
+    # Add your condition here (example: check if the folder exists)
+    if (!(Test-Path $localFolder)) {
+        # Log failure
+        Log-Entry "Sync for $localFolder failed because the folder does not exist."
+        
+        # Send failure notification to webhook
+        $failurePayload = @{
+            text = "Sync for $localFolder failed because the folder does not exist."
+        }
+        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body ($failurePayload | ConvertTo-Json) -ContentType "application/json"
+        continue  # Skip synchronization for this folder and move to the next one
+    }
+
+    # Build AWS CLI sync command for the current folder
+    $awsSyncCommand = "aws s3 sync $localFolder $s3Bucket --region $region"
+
+    # Execute the AWS CLI sync command
+    try {
+        Invoke-Expression -Command $awsSyncCommand
+        Write-Host "Sync for $localFolder completed successfully!"
+
+        # Log success
+        Log-Entry "Sync for $localFolder completed successfully!"
+
+        # Send success notification to webhook
+        $successPayload = @{
+            text = "Sync for $localFolder completed successfully!"
+        }
+        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body ($successPayload | ConvertTo-Json) -ContentType "application/json"
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        Write-Host "Sync for $localFolder failed with error: $errorMessage"
+
+        # Log error
+        Log-Entry "Sync for $localFolder failed with error: $errorMessage"
+
+        # Send error notification to webhook
+        $errorPayload = @{
+            text = "Sync for $localFolder failed with error: $errorMessage"
+        }
+        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body ($errorPayload | ConvertTo-Json) -ContentType "application/json"
+    }
+}
